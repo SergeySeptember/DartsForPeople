@@ -11,7 +11,7 @@
 
 Этот репозиторий содержит Telegram-бот, написанный на C# с использованием библиотеки Telegram.Bot. Основные функциональности бота включают планирование и отправку в чат голосований, отправку поздравлений с днем рождения пользователям, контроль активности и нецензурных выражений в чате. Хранение параметров конфигурации и остальных данных осуществлено в БД PostgreSQL.
 
-Схема БД PostgreSQL
+<h4 align="center">Схема БД PostgreSQL</h4>
 <p align="center">
   <a href="" rel="noopener">
  <img src="https://github.com/SergeySeptember/DartsForPeople/blob/master/schema.png?raw=true" ></a>
