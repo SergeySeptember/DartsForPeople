@@ -12,9 +12,11 @@ namespace Darts_for_people
     {
         static async Task Main(string[] args)
         {
-            // Получаем необходимые параметры для работы юлта
+            // Получаем необходимые параметры для работы бота
             string token = await BotSettings.GetTokenAsync();
             long chatId = await BotSettings.GetChatIdAsync();
+            long interval = await BotSettings.GetTimerIntervalAsync();
+            List<string> forbiddenWords = await BotSettings.GetForbiddenWordsCaseWordAsync();
 
             // Если токена нет в БД
             if (string.IsNullOrEmpty(token))
@@ -61,13 +63,13 @@ namespace Darts_for_people
                                              .StartAt(DateBuilder.DateOf(8, 0, 0)) // Устанваливаем время, во сколько тригер начнёт работу
                                              .WithSimpleSchedule(x => x.WithIntervalInHours(24).RepeatForever()) // Устанавливаем интервал повторения
                                              .Build();
-            
+
             // Добавляем задачу и тригер в расписание 
             sched?.ScheduleJob(job, trigger);
 
             // Если есть id, чата запускаем таймер контроля активности в чате
             if (chatId != 0)
-                BotMethods.SilenceControlTimer(botClient, chatId, cts.Token);
+                BotMethods.SilenceControlTimer(botClient, chatId, interval, cts.Token);
 
             // Выводим информационные сообщения
             await Console.Out.WriteLineAsync("Для остановки бота нажми Ecscape");
@@ -92,24 +94,44 @@ namespace Darts_for_people
             // Асинхронный обработчик для каждого нового обновления
             async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
             {
-                if (update.Message is not { } message) return; // Если обновление не содержит сообщения
-
-                // Если id чата неизвестно, записываем его в БД
-                if (chatId == 0)
+                try
                 {
-                    chatId = update.Message.Chat.Id;
-                    BotMethods.SilenceControlTimer(botClient, chatId, cancellationToken); // Запускаем таймер контроля активности в чате
-                    await BotSettings.UpdateChatId(chatId); // Записывает Id чата в БД, т.к. его там нет
+                    if (update.Message is not { } message) return; // Если обновление не содержит сообщения
+
+                    // Если id чата неизвестно, записываем его в БД
+                    if (chatId == 0)
+                    {
+                        chatId = update.Message.Chat.Id;
+                        BotMethods.SilenceControlTimer(botClient, chatId, interval, cancellationToken); // Запускаем таймер контроля активности в чате
+                        await BotSettings.UpdateChatId(chatId); // Записывает Id чата в БД, т.к. его там нет
+                    }
+
+                    // Реакция на сообщения
+                    if (update.Message.Text is not null)
+                    {
+                        foreach (var item in forbiddenWords)
+                        {
+                            if (update.Message.Text.ToLower().Contains(item))
+                            {
+                                await botClient.SendTextMessageAsync(chatId, "Не ругайся!", replyToMessageId: update.Message.MessageId, cancellationToken: cancellationToken);
+                            }
+                        }
+                    }
+
+                    BotMethods.ResetSilenceControlTimer(interval);
+
+                    return;
                 }
-
-                BotMethods.ResetSilenceControlTimer();
-
-                return;
+                catch (Exception)
+                {
+                    await botClient.SendTextMessageAsync(chatId, "Я погиб(", cancellationToken: cancellationToken); // Пишем в чат, если бот рухнул
+                }
             }
 
             // Асинхронный обработчик ошибок
-            Task HandlePollingErrorAsync(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
+            async Task HandlePollingErrorAsync(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
             {
+                await botClient.SendTextMessageAsync(chatId, "Я погиб", cancellationToken: cancellationToken); // Пишем в чат, если бот рухнул
                 var ErrorMessage = exception switch
                 {
                     ApiRequestException apiRequestException
@@ -118,7 +140,7 @@ namespace Darts_for_people
                 };
 
                 Console.WriteLine(ErrorMessage);    // Вывод сообщения об ошибке в консоль
-                return Task.CompletedTask;
+                return;
             }
         }
 

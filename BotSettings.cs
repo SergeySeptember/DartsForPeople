@@ -9,30 +9,30 @@ namespace Darts_for_people
         private static readonly DatabaseManager _database = new(_connectionString);
 
         /// <summary>
-        /// получает расписание из БД и возвращает список дней недели, которые были запланированы.
+        /// Получает расписание из БД и возвращает список дней недели, которые были запланированы.
         /// </summary>
         /// <returns>Список дней недели.</returns>
         public static async Task<List<DayOfWeek>> GetScheduledDaysOfWeekAsync()
         {
             DataTable data = await _database.ExecuteQueryAsync("select days from settings"); // Вытягиваем расписание из БД
             List<DayOfWeek>? scheduledDays = new();
+            object[] temp = (object[])data.Rows[0]["days"];
 
             // Парсим данные
-            scheduledDays = data.Rows[0]["days"]
-                .ToString()
-                ?.Split(',')
-                .Select(day => Enum.Parse<DayOfWeek>(day, ignoreCase: true))
-                .ToList();
-
-            // Если в БД ничего нет, возвращаем пустой список
-            if (scheduledDays is null)
-                return new();
+            if (temp != null)
+            {
+                foreach (string stringDay in temp)
+                {
+                    if (Enum.TryParse<DayOfWeek>(stringDay, true, out DayOfWeek day))
+                        scheduledDays.Add(day);
+                }
+            }
 
             return scheduledDays;
         }
 
         /// <summary>
-        /// получает токен бота из БД и возвращает его.
+        /// Получает токен бота из БД и возвращает его.
         /// </summary>
         /// <returns>Токен бота.</returns>
         public static async Task<string> GetTokenAsync()
@@ -61,6 +61,23 @@ namespace Darts_for_people
         }
 
         /// <summary>
+        /// Получает идентификатор чата из БД и возвращает его.
+        /// </summary>
+        /// <returns>Id чата</returns>
+        /// <remarks>Если Id чата отсутсвует в БД, метод возвращает 0.</remarks>
+        public static async Task<long> GetTimerIntervalAsync()
+        {
+            DataTable data = await _database.ExecuteQueryAsync("select silence_timer from settings"); // Вытягиваем расписание из БД
+            long interval = 0;
+
+            // Парсим Id чата 
+            if (long.TryParse(data?.Rows[0]["silence_timer"].ToString(), out long result))
+                interval = result;
+
+            return interval;
+        }
+
+        /// <summary>
         /// Получает список поздравлений из БД и возвращает их в виде списка строк.
         /// </summary>
         /// <returns>Список поздравлений.</returns>
@@ -78,11 +95,15 @@ namespace Darts_for_people
                     birthdayMessages.Add(message);
             }
 
+            // Если в БД записей нет
+            if (birthdayMessages.Count == 0)
+                birthdayMessages.Add("Накидайте ему поздравлений!");
+
             return birthdayMessages;
         }
 
         /// <summary>
-        /// Получает получает список реакций на тишину в чате из БД и возвращает их в виде списка строк.
+        /// Получает список реакций на тишину в чате из БД и возвращает их в виде списка строк.
         /// </summary>
         /// <returns>Список реакций</returns>
         public async static Task<List<string>> GetSilenceCaseWordAsync()
@@ -99,7 +120,32 @@ namespace Darts_for_people
                     silenceMessages.Add(message);
             }
 
+            // Если в БД записей нет
+            if (silenceMessages.Count == 0)
+                silenceMessages.Add("Тишина как в морге..");
+
             return silenceMessages;
+        }
+
+        /// <summary>
+        /// Получает список слов в сообщениях, на которые нужно среагировать, из базы данных и возвращает их в виде списка строк.
+        /// </summary>
+        /// <returns>Список реакций</returns>
+        public async static Task<List<string>> GetForbiddenWordsCaseWordAsync()
+        {
+            DataTable data = await _database.ExecuteQueryAsync("select react_case from word_case"); // Вытягиваем расписание из БД
+            List<string> forbiddenWordsMessages = new();
+
+            // Перебираем полученную таблицу
+            for (int i = 0; i < data?.Rows.Count; i++)
+            {
+                string? message = data?.Rows[i]["react_case"].ToString();
+
+                if (!string.IsNullOrEmpty(message))
+                    forbiddenWordsMessages.Add(message);
+            }
+
+            return forbiddenWordsMessages;
         }
 
         /// <summary>

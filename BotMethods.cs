@@ -43,11 +43,11 @@ namespace Darts_for_people
                     // Отправляем голосование в чат
                     await botClient.SendPollAsync(
                     chatId: chatID,
-                    question: "В дартс идём?",
+                    question: "Играть сегодня будем",
                     isAnonymous: false,
                     options: new[]
                     {
-                        "Даааа",
+                        "Даааа!",
                         "Неет(("
                     },
                     cancellationToken: token);
@@ -76,7 +76,7 @@ namespace Darts_for_people
             {
                 List<Person> listOfPersons = await BotSettings.GetPersonAsync(); // Получаем список пользователей
                 List<string> birthdayCaseWord = await BotSettings.GetBirthdayCaseWordAsync(); // Получаем варианты поздравлений
-                long chatID = await BotSettings.GetChatIdAsync();                
+                long chatID = await BotSettings.GetChatIdAsync();
 
                 // Проверяем, есть ли сегодня у кого-нибудь ДР
                 foreach (var item in listOfPersons)
@@ -122,7 +122,7 @@ namespace Darts_for_people
         /// <param name="botClient">Клиент Telegram для отправки сообщений.</param>
         /// <param name="chatId">Id чата.</param>
         /// <param name="token">Токен отмены операции.</param>
-        public static async void SilenceControlTimer(ITelegramBotClient botClient, long chatId, CancellationToken token)
+        public static async void SilenceControlTimer(ITelegramBotClient botClient, long chatId, long interval, CancellationToken token)
         {
             // Если id чата нет, не запускам таймер
             if (chatId == 0)
@@ -135,13 +135,13 @@ namespace Darts_for_people
             _timerOfSilence = new((obj) =>
             {
                 botClient.SendTextMessageAsync(chatId, silenceCase[random.Next(silenceCase.Count)], cancellationToken: token);
-            }, null, 43200000, 0);
+            }, null, interval, 0);
         }
 
         /// <summary>
         /// Сбрасывает таймер отправки сообщения.
         /// </summary>
-        public static void ResetSilenceControlTimer() => _timerOfSilence.Change(43200000, 0); // Сбрасываем таймер
+        public static void ResetSilenceControlTimer(long interval) => _timerOfSilence.Change(interval, 0); // Сбрасываем таймер
 
     }
 }
