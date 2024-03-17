@@ -1,4 +1,6 @@
-﻿using Telegram.Bot;
+﻿using Quartz;
+using Quartz.Impl;
+using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
@@ -8,10 +10,21 @@ namespace Darts_for_people
 {
     internal class Program
     {
-        static async Task Main(string[] args) // Todo: переделать на эксплицитную типизацию и прокомментировать код
+        static async Task Main(string[] args)
         {
-            // Создание экземпляра бота с использованием токена
-            var botClient = new TelegramBotClient(BotSettings.GetToken().Result);
+            // Получаем необходимые параметры для работы юлта
+            string token = await BotSettings.GetTokenAsync();
+            long chatId = await BotSettings.GetChatIdAsync();
+
+            // Если токена нет в БД
+            if (string.IsNullOrEmpty(token))
+            {
+                await Console.Out.WriteLineAsync("Токена нет");
+                return;
+            }
+
+            // Создаём бота с использованием токена
+            TelegramBotClient botClient = new(token);
             using CancellationTokenSource cts = new();
 
             // Настройка параметров получения обновлений
@@ -28,39 +41,70 @@ namespace Darts_for_people
                 cancellationToken: cts.Token                    // Токен для отмены операции
             );
 
+            // Создаём расписание выполнения методов
+            ISchedulerFactory schedFact = new StdSchedulerFactory();
+            IScheduler sched = await schedFact.GetScheduler();
+            sched?.Start();
 
-            // Запускаем таску на отправку голосования
-            var scheduledTask = Task.Run(async () =>
+            // Создаём работу, которая будет выполняться, когда сработает тригер
+            IJobDetail job = JobBuilder.Create<BotMethods>()
+                    .WithIdentity("job1", "group1")
+                    .Build();
+
+            // Мапим объекты, чтобы передавать их в методы другого класса
+            job.JobDataMap.Put("botClient", botClient);
+            job.JobDataMap.Put("token", cts.Token);
+
+            // Создаём и настраиваем тригер
+            ITrigger trigger = TriggerBuilder.Create()
+                                             .WithIdentity("trigger1", "group1")
+                                             .StartAt(DateBuilder.DateOf(8, 0, 0)) // Устанваливаем время, во сколько тригер начнёт работу
+                                             .WithSimpleSchedule(x => x.WithIntervalInHours(24).RepeatForever()) // Устанавливаем интервал повторения
+                                             .Build();
+            
+            // Добавляем задачу и тригер в расписание 
+            sched?.ScheduleJob(job, trigger);
+
+            // Если есть id, чата запускаем таймер контроля активности в чате
+            if (chatId != 0)
+                BotMethods.SilenceControlTimer(botClient, chatId, cts.Token);
+
+            // Выводим информационные сообщения
+            await Console.Out.WriteLineAsync("Для остановки бота нажми Ecscape");
+            await Console.Out.WriteLineAsync("Для очистки консоли нажми F5");
+
+            while (!cts.Token.IsCancellationRequested)
             {
-                while (!cts.Token.IsCancellationRequested)
+                // Считываем нажатую кнопку
+                ConsoleKey key = Console.ReadKey().Key;
+                switch (key)
                 {
-                    var daysOfWeek = BotSettings.GetDays().Result; // Дни недели считанные с инишника
-                    var now = DateTime.Now.DayOfWeek;
-                    if (daysOfWeek.Contains(now) && DateTime.Now.Hour == 9)
-                    {
-                        await BotMethods.SendPollAsync(botClient, cts);
-                        await Task.Delay(TimeSpan.FromDays(1), cts.Token); // Ожидание до следующего дня, чтобы избежать повторного выполнения в тот же день
-                    }
-                    else
-                    {
-                        await Task.Delay(TimeSpan.FromHours(23), cts.Token); // Ожидание в течение короткого времени перед следующей проверкой
-                    }
+                    case ConsoleKey.Escape:
+                        await Console.Out.WriteLineAsync("ББот остановлен"); // Здесь две буквы "Б", потому что по какой-то причине первая буква в косноле не рисуется
+                        cts.Cancel();
+                        break;
+                    case ConsoleKey.F5:
+                        Console.Clear();
+                        break;
                 }
-            }, cts.Token);
-
-            Console.ReadKey();
-            await Console.Out.WriteLineAsync("Bot stopped");
-            cts.Cancel(); // Отправка запроса остановкe бота
+            }
 
             // Асинхронный обработчик для каждого нового обновления
             async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
             {
-                if (update.Message is not { } message)      // Проверка на наличие сообщения в обновлении
-                    return;
-                if (message.Text is not { } messageText)    // Проверка на наличие текста в сообщении
-                    return;
+                if (update.Message is not { } message) return; // Если обновление не содержит сообщения
 
+                // Если id чата неизвестно, записываем его в БД
+                if (chatId == 0)
+                {
+                    chatId = update.Message.Chat.Id;
+                    BotMethods.SilenceControlTimer(botClient, chatId, cancellationToken); // Запускаем таймер контроля активности в чате
+                    await BotSettings.UpdateChatId(chatId); // Записывает Id чата в БД, т.к. его там нет
+                }
 
+                BotMethods.ResetSilenceControlTimer();
+
+                return;
             }
 
             // Асинхронный обработчик ошибок
@@ -74,8 +118,9 @@ namespace Darts_for_people
                 };
 
                 Console.WriteLine(ErrorMessage);    // Вывод сообщения об ошибке в консоль
-                return Task.CompletedTask;          // Завершение задачи без возврата результата
+                return Task.CompletedTask;
             }
         }
+
     }
 }
